@@ -2,6 +2,9 @@ import io
 import os
 import random
 import time
+from threading import Thread
+import http.server
+import socketserver
 import requests
 import telebot
 import xml.etree.ElementTree as ET
@@ -17,7 +20,7 @@ session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 })
 
-# 🛠️ فعال‌سازی مولتی‌ثرد برای جلوگیری از فریز شدن ربات
+# فعال‌سازی مولتی‌ثرد برای ربات
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 
 # ----------------- توابع کمکی دریافت مدیا -----------------
@@ -83,22 +86,19 @@ def send_welcome(message):
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 
-# 📸 بخش اول: هندلر ارسال عکس پنج تایی
 @bot.message_handler(commands=["pic34"])
 def send_pictures(message):
     text_parts = message.text.split(" ", 1)
-
     if len(text_parts) < 2:
         bot.reply_to(message, "⚠️ لطفاً یک تگ بنویسید!\nمثال: `/pic34 madara uchiha`", parse_mode="Markdown")
         return
 
     tag = text_parts[1].strip()
     waiting_msg = bot.reply_to(message, f"🔍 در حال دانلود ۵ عکس تصادفی برای #{tag}...")
-
     urls_list, status = fetch_media_from_api(tag, mode="pic")
 
     if urls_list and status == "success":
-        selected_urls = urls_list[:10] # ۱۰ تا زاپاس
+        selected_urls = urls_list[:10]
         downloaded_files = []
         
         for img_url in selected_urls:
@@ -139,18 +139,15 @@ def send_pictures(message):
         bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id)
 
 
-# 🎬 بخش دوم: هندلر ارسال تک ویدیو
 @bot.message_handler(commands=["vid34"])
 def send_video(message):
     text_parts = message.text.split(" ", 1)
-
     if len(text_parts) < 2:
         bot.reply_to(message, "⚠️ لطفاً یک تگ بنویسید!\nمثال: `/vid34 madara uchiha`", parse_mode="Markdown")
         return
 
     tag = text_parts[1].strip()
     waiting_msg = bot.reply_to(message, f"🔍 در حال جستجو و دانلود ویدیو برای #{tag}...\n(ویدیوها زمان بیشتری برای دانلود نیاز دارند)")
-
     urls_list, status = fetch_media_from_api(tag, mode="vid")
 
     if urls_list and status == "success":
@@ -171,7 +168,6 @@ def send_video(message):
         if video_file:
             try:
                 bot.delete_message(message.chat.id, waiting_msg.message_id)
-                print(f"📤 Uploading video to Telegram...")
                 bot.send_video(message.chat.id, video_file, caption=video_caption, timeout=90)
             except Exception as e:
                 print(f"❌ Error uploading video: {e}")
@@ -182,7 +178,28 @@ def send_video(message):
         error_msg = f"❌ هیچ ویدیویی برای تگ #{tag} پیدا نشد!" if status == "no_media_found" or status == "no_posts" else "🚨 خطایی در ارتباط با سرور رخ داد."
         bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id)
 
+# ----------------- بخش اجرای ایمن و تضمین پورت -----------------
+def start_bot_polling():
+    print("🚀 ربات در لایه موازی فعال شد...")
+    bot.infinity_polling()
 
 if __name__ == "__main__":
-    print("🚀 ربات مالتی‌ثرد تصاویر و ویدیو روشن شد...")
-    bot.infinity_polling()
+    # ۱. اجرای ربات تلگرام در یک ترد موازی (Daemon) تا سرور اصلی را بلاک نکند
+    bot_thread = Thread(target=start_bot_polling)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # ۲. اختصاص ترد اصلی فرآیند به سرور پورت رندر (تضمین ۱۰۰٪ باز ماندن پورت)
+    class SimpleHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"OK")
+
+    port = int(os.environ.get("PORT", 8080))
+    socketserver.TCPServer.allow_reuse_address = True
+    
+    with socketserver.TCPServer(("", port), SimpleHandler) as httpd:
+        print(f"📡 ترد اصلی به پورت {port} متصل شد. رندر با موفقیت دور زده شد!")
+        httpd.serve_forever()
