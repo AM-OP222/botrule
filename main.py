@@ -2,11 +2,9 @@ import io
 import os
 import random
 import time
-from threading import Thread
 import requests
 import telebot
 import xml.etree.ElementTree as ET
-
 
 # ----------------- تنظیمات ربات با توکن‌های شما -----------------
 BOT_TOKEN = "8969280684:AAF2C5mhjg5Am1S5trwxj75cM8ahgt6Hogg"
@@ -186,10 +184,5 @@ def send_video(message):
 
 
 if __name__ == "__main__":
-    # ۱. استارت سرور Flask در بک‌گراند برای اتصال به cron-job.org
-    t = Thread(target=run_flask)
-    t.start()
-    
-    # ۲. استارت ربات تلگرام
-    print("🚀 ربات مالتی‌ثرد تصاویر و ویدیو به همراه سرور Flask روشن شد...")
+    print("🚀 ربات مالتی‌ثرد تصاویر و ویدیو روشن شد...")
     bot.infinity_polling()
