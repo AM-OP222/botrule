@@ -9,7 +9,7 @@ import requests
 import telebot
 import xml.etree.ElementTree as ET
 
-# ----------------- تنظیمات ربات با توکن‌های شما -----------------
+# ----------------- Configuration & Tokens -----------------
 BOT_TOKEN = "8969280684:AAF2C5mhjg5Am1S5trwxj75cM8ahgt6Hogg"
 USER_ID = "6501593"
 API_KEY = "7177a4499703fedb969488fc7d60d5d90dd7a6b95e84d1683e8f560228c877108a497988d74be4f506c00b410ab193d4da9d2474db8456e6398041fca4b81901"
@@ -20,19 +20,27 @@ session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 })
 
-# فعال‌سازی مولتی‌ثرد برای ربات
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 
-# ----------------- توابع کمکی دریافت مدیا -----------------
+# 🧠 Strict Anti-Duplicate Cache (Stores up to 1000 items to guarantee NO REPEATED MEDIA)
+SENT_MEDIA = []
+
+def add_to_sent_cache(media_id):
+    if media_id not in SENT_MEDIA:
+        SENT_MEDIA.append(media_id)
+    if len(SENT_MEDIA) > 1000:
+        SENT_MEDIA.pop(0)
+
+# ----------------- Helper Functions -----------------
 def fetch_media_from_api(tag, mode="pic"):
     url = "https://api.rule34.xxx/index.php"
-    processed_tag = tag.lower().strip().replace(" ", "_")
+    cleaned_tag = tag.lower().strip().replace(" ", "_")
     
     params = {
         "page": "dapi",
         "s": "post",
         "q": "index",
-        "tags": processed_tag,
+        "tags": cleaned_tag,
         "limit": 100,
         "user_id": USER_ID,
         "api_key": API_KEY
@@ -50,67 +58,79 @@ def fetch_media_from_api(tag, mode="pic"):
             posts = root.findall('post')
 
             if posts and len(posts) > 0:
-                urls = []
+                media_list = []
                 for p in posts:
+                    post_id = p.get("id")
                     media_url = p.get("file_url")
+                    
+                    # 100% Duplicate Filter
+                    if post_id in SENT_MEDIA:
+                        continue
+                        
                     if media_url:
                         ext = media_url.split(".")[-1].lower().split("?")[0]
                         if mode == "pic" and ext in ["jpg", "jpeg", "png", "bmp", "webp"]:
-                            urls.append(media_url)
+                            media_list.append({"id": post_id, "url": media_url})
                         elif mode == "vid" and ext in ["mp4", "webm"]:
-                            urls.append(media_url)
+                            media_list.append({"id": post_id, "url": media_url})
 
-                if urls:
-                    random.shuffle(urls)
-                    return urls, "success"
+                if media_list:
+                    random.shuffle(media_list)
+                    return media_list, "success"
                 else:
-                    return None, "no_media_found"
+                    return None, "no_new_media"
             else:
                 return None, "no_posts"
     except Exception as e:
         print(f"🚨 API Error: {e}")
     return None, "error"
 
-# ----------------- هندلرهای ربات تلگرام -----------------
+# ----------------- Telegram Bot Handlers -----------------
 
 @bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
     welcome_text = (
-        "🔮 **به ربات پیشرفته تصاویر و ویدیو خوش آمدید!**\n\n"
-        "دستورات فعال ربات:\n"
-        "📸 دریافت ۵ عکس تصادفی:\n"
-        "`/pic34 madara uchiha`\n\n"
-        "🎬 دریافت ۱ ویدیو تصادفی:\n"
-        "`/vid34 madara uchiha`"
+        "⚡️ **WELCOME TO 34 MEDIA BOT** ⚡️\n\n"
+        "🎬 **Commands available:**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📸 **Get 5 Unique Photos:**\n"
+        "👉 `/pic34 [tag]`\n\n"
+        "🎥 **Get 1 Video (Supports up to 200MB):**\n"
+        "👉 `/vid34 [tag]`\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💻 **Developer:** @ItsShaah\n"
+        "📢 *Type your tag carefully for perfect results.*"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 
+# 📸 Handler: Send 5 Random Pictures (Strictly Unique, No Captions)
 @bot.message_handler(commands=["pic34"])
 def send_pictures(message):
     text_parts = message.text.split(" ", 1)
     if len(text_parts) < 2:
-        bot.reply_to(message, "⚠️ لطفاً یک تگ بنویسید!\nمثال: `/pic34 madara uchiha`", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ **Please provide a tag!**\n*Example:* `/pic34 hinata`", parse_mode="Markdown")
         return
 
     tag = text_parts[1].strip()
-    waiting_msg = bot.reply_to(message, f"🔍 در حال دانلود ۵ عکس تصادفی برای #{tag}...")
-    urls_list, status = fetch_media_from_api(tag, mode="pic")
+    waiting_msg = bot.reply_to(message, f"🔍 **Searching and downloading 5 unique photos for** `#{tag}`**...**", parse_mode="Markdown")
+    media_list, status = fetch_media_from_api(tag, mode="pic")
 
-    if urls_list and status == "success":
-        selected_urls = urls_list[:10]
+    if media_list and status == "success":
         downloaded_files = []
+        used_ids = []
         
-        for img_url in selected_urls:
+        for item in media_list[:15]:
             if len(downloaded_files) >= 5:
                 break
             try:
-                img_res = session.get(img_url, timeout=7)
+                img_res = session.get(item["url"], timeout=7)
                 if img_res.status_code == 200:
                     bio = io.BytesIO(img_res.content)
-                    ext = img_url.split(".")[-1].lower().split("?")[0]
+                    ext = item["url"].split(".")[-1].lower().split("?")[0]
                     bio.name = f"photo_{len(downloaded_files)}.{ext}"
                     downloaded_files.append(bio)
+                    used_ids.append(item["id"])
             except:
                 continue
 
@@ -123,73 +143,71 @@ def send_pictures(message):
             success_count = 0
             for i, file_obj in enumerate(downloaded_files):
                 try:
-                    caption_text = f"📸 تگ: #{tag} ({i+1}/{len(downloaded_files)})"
-                    bot.send_photo(message.chat.id, file_obj, caption=caption_text, timeout=45)
+                    bot.send_photo(message.chat.id, file_obj, timeout=45)
+                    add_to_sent_cache(used_ids[i])
                     success_count += 1
-                    time.sleep(1.5)
+                    time.sleep(1.2)
                 except Exception as e:
-                    print(f"❌ Error uploading picture {i+1}: {e}")
+                    print(f"❌ Upload error: {e}")
             
             if success_count == 0:
-                bot.send_message(message.chat.id, "❌ خطایی در آپلود تصاویر به تلگرام رخ داد.")
+                bot.send_message(message.chat.id, "❌ **Error uploading images to Telegram.**\nContact: @ItsShaah", parse_mode="Markdown")
         else:
-            bot.edit_message_text("❌ خطایی در دانلود فایل‌های تصویری از سرور اصلی رخ داد.", message.chat.id, waiting_msg.message_id)
+            bot.edit_message_text("❌ **Failed to download images from server.**", message.chat.id, waiting_msg.message_id, parse_mode="Markdown")
     else:
-        error_msg = f"❌ چیزی پیدا نشد." if status == "no_media_found" or status == "no_posts" else "🚨 خطایی در ارتباط با سرور رخ داد."
-        bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id)
+        error_msg = "❌ **No new images found for this tag.**" if status == "no_new_media" or status == "no_posts" else "🚨 **Server connection error.**"
+        bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id, parse_mode="Markdown")
 
 
+# 🎬 Handler: Send 1 Random Video (High Speed Stream, Supports up to 200MB)
 @bot.message_handler(commands=["vid34"])
 def send_video(message):
     text_parts = message.text.split(" ", 1)
     if len(text_parts) < 2:
-        bot.reply_to(message, "⚠️ لطفاً یک تگ بنویسید!\nمثال: `/vid34 madara uchiha`", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ **Please provide a tag!**\n*Example:* `/vid34 aki`", parse_mode="Markdown")
         return
 
     tag = text_parts[1].strip()
-    waiting_msg = bot.reply_to(message, f"🔍 در حال جستجو و دانلود ویدیو برای #{tag}...\n(ویدیوها زمان بیشتری برای دانلود نیاز دارند)")
-    urls_list, status = fetch_media_from_api(tag, mode="vid")
+    waiting_msg = bot.reply_to(message, f"🔍 **Searching & streaming video for** `#{tag}`**...**", parse_mode="Markdown")
+    media_list, status = fetch_media_from_api(tag, mode="vid")
 
-    if urls_list and status == "success":
-        video_file = None
-        video_caption = f"🎬 ویدیو تصادفی تگ: #{tag}"
+    if media_list and status == "success":
+        success = False
         
-        for vid_url in urls_list[:5]:
+        # Iterating to find a solid streamable link
+        for item in media_list[:5]:
             try:
-                vid_res = session.get(vid_url, timeout=35)
-                if vid_res.status_code == 200:
-                    video_file = io.BytesIO(vid_res.content)
-                    ext = vid_url.split(".")[-1].lower().split("?")[0]
-                    video_file.name = f"video.{ext}"
-                    break
-            except:
+                # Setting 120s timeout to fully support videos up to 200MB
+                bot.send_video(message.chat.id, item["url"], timeout=120)
+                add_to_sent_cache(item["id"])
+                success = True
+                break
+            except Exception as e:
+                print(f"⚠️ Stream failed for id {item['id']}: {e}")
                 continue
 
-        if video_file:
+        if success:
             try:
                 bot.delete_message(message.chat.id, waiting_msg.message_id)
-                bot.send_video(message.chat.id, video_file, caption=video_caption, timeout=90)
-            except Exception as e:
-                print(f"❌ Error uploading video: {e}")
-                bot.send_message(message.chat.id, "❌ ویدیو دانلود شد اما آپلود آن به تلگرام ناموفق بود (احتمالاً حجم آن بالای ۵۰ مگابایت است).")
+            except:
+                pass
         else:
-            bot.edit_message_text("❌ موفق به دانلود ویدیوهای پیدا شده نشدیم (احتمالاً حجم ویدیوها بسیار بالاست).", message.chat.id, waiting_msg.message_id)
+            bot.edit_message_text("❌ **Failed to stream video.**\n*The file might be over 200MB or link is broken.*", message.chat.id, waiting_msg.message_id, parse_mode="Markdown")
     else:
-        error_msg = f"❌ هیچ ویدیویی برای تگ #{tag} پیدا نشد!" if status == "no_media_found" or status == "no_posts" else "🚨 خطایی در ارتباط با سرور رخ داد."
-        bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id)
+        error_msg = "❌ **No new videos found for this tag.**" if status == "no_new_media" or status == "no_posts" else "🚨 **Server connection error.**"
+        bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id, parse_mode="Markdown")
 
-# ----------------- بخش اجرای ایمن و تضمین پورت -----------------
+
+# ----------------- Keep Alive Layer -----------------
 def start_bot_polling():
-    print("🚀 ربات در لایه موازی فعال شد...")
+    print("🚀 Bot Polling Started...")
     bot.infinity_polling()
 
 if __name__ == "__main__":
-    # ۱. اجرای ربات تلگرام در یک ترد موازی (Daemon) تا سرور اصلی را بلاک نکند
     bot_thread = Thread(target=start_bot_polling)
     bot_thread.daemon = True
     bot_thread.start()
     
-    # ۲. اختصاص ترد اصلی فرآیند به سرور پورت رندر (تضمین ۱۰۰٪ باز ماندن پورت)
     class SimpleHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -201,5 +219,5 @@ if __name__ == "__main__":
     socketserver.TCPServer.allow_reuse_address = True
     
     with socketserver.TCPServer(("", port), SimpleHandler) as httpd:
-        print(f"📡 ترد اصلی به پورت {port} متصل شد. رندر با موفقیت دور زده شد!")
+        print(f"📡 Web server online on port {port}. Developer: @ItsShaah")
         httpd.serve_forever()
