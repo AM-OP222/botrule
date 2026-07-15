@@ -10,7 +10,7 @@ import telebot
 import xml.etree.ElementTree as ET
 
 # ----------------- Configuration & Tokens -----------------
-BOT_TOKEN = "8969280684:AAF2C5mhjg5Am1S5trwxj75cM8ahgt6Hogg"
+BOT_TOKEN = "8969280684:AAHaRWG3CKj3WAq_R-tPzALh9KsEIu5N1E0"
 USER_ID = "6501593"
 API_KEY = "7177a4499703fedb969488fc7d60d5d90dd7a6b95e84d1683e8f560228c877108a497988d74be4f506c00b410ab193d4da9d2474db8456e6398041fca4b81901"
 
