@@ -10,7 +10,7 @@ import telebot
 import xml.etree.ElementTree as ET
 
 # ----------------- Configuration & Tokens -----------------
-BOT_TOKEN = "8969280684:AAHaRWG3CKj3WAq_R-tPzALh9KsEIu5N1E0"
+BOT_TOKEN = "8969280684:AAF2C5mhjg5Am1S5trwxj75cM8ahgt6Hogg"
 USER_ID = "6501593"
 API_KEY = "7177a4499703fedb969488fc7d60d5d90dd7a6b95e84d1683e8f560228c877108a497988d74be4f506c00b410ab193d4da9d2474db8456e6398041fca4b81901"
 
@@ -93,7 +93,7 @@ def send_welcome(message):
         "⚡️ **WELCOME TO 34 MEDIA BOT** ⚡️\n\n"
         "🎬 **Commands available:**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📸 **Get 5 Unique Photos:**\n"
+        "📸 **Get 5 Unique Photos (Ultra Fast):**\n"
         "👉 `/pic34 [tag]`\n\n"
         "🎥 **Get 1 Video (Supports up to 200MB):**\n"
         "👉 `/vid34 [tag]`\n"
@@ -104,7 +104,7 @@ def send_welcome(message):
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 
-# 📸 Handler: Send 5 Random Pictures (Strictly Unique, No Captions)
+# 📸 Handler: Send 5 Random Pictures (Ultra Fast URL Stream Method)
 @bot.message_handler(commands=["pic34"])
 def send_pictures(message):
     text_parts = message.text.split(" ", 1)
@@ -113,47 +113,32 @@ def send_pictures(message):
         return
 
     tag = text_parts[1].strip()
-    waiting_msg = bot.reply_to(message, f"🔍 **Searching and downloading 5 unique photos for** `#{tag}`**...**", parse_mode="Markdown")
+    waiting_msg = bot.reply_to(message, f"🔍 **Searching 5 unique photos for** `#{tag}`**...**", parse_mode="Markdown")
     media_list, status = fetch_media_from_api(tag, mode="pic")
 
     if media_list and status == "success":
-        downloaded_files = []
-        used_ids = []
-        
-        for item in media_list[:15]:
-            if len(downloaded_files) >= 5:
+        # حذف پیام Waiting قبل از شروع ارسال برای تجربه کاربری تمیزتر
+        try:
+            bot.delete_message(message.chat.id, waiting_msg.message_id)
+        except:
+            pass
+
+        success_count = 0
+        for item in media_list[:10]:  # حداکثر ۱۰ مورد را امتحان می‌کند تا حتماً ۵ ارسال موفق داشته باشد
+            if success_count >= 5:
                 break
             try:
-                img_res = session.get(item["url"], timeout=7)
-                if img_res.status_code == 200:
-                    bio = io.BytesIO(img_res.content)
-                    ext = item["url"].split(".")[-1].lower().split("?")[0]
-                    bio.name = f"photo_{len(downloaded_files)}.{ext}"
-                    downloaded_files.append(bio)
-                    used_ids.append(item["id"])
-            except:
+                # ارسال مستقیم عکس از طریق آدرس وب بدون دانلود روی رندر
+                bot.send_photo(message.chat.id, item["url"], timeout=20)
+                add_to_sent_cache(item["id"])
+                success_count += 1
+                time.sleep(0.5)  # تاخیر بسیار کم فقط برای رعایت قوانین دلیوری تلگرام
+            except Exception as e:
+                print(f"⚠️ Image stream failed for id {item['id']}: {e}")
                 continue
-
-        if downloaded_files:
-            try:
-                bot.delete_message(message.chat.id, waiting_msg.message_id)
-            except:
-                pass
-                
-            success_count = 0
-            for i, file_obj in enumerate(downloaded_files):
-                try:
-                    bot.send_photo(message.chat.id, file_obj, timeout=45)
-                    add_to_sent_cache(used_ids[i])
-                    success_count += 1
-                    time.sleep(1.2)
-                except Exception as e:
-                    print(f"❌ Upload error: {e}")
-            
-            if success_count == 0:
-                bot.send_message(message.chat.id, "❌ **Error uploading images to Telegram.**\nContact: @ItsShaah", parse_mode="Markdown")
-        else:
-            bot.edit_message_text("❌ **Failed to download images from server.**", message.chat.id, waiting_msg.message_id, parse_mode="Markdown")
+        
+        if success_count == 0:
+            bot.send_message(message.chat.id, "❌ **Error sending images via URL stream.**\nContact: @ItsShaah", parse_mode="Markdown")
     else:
         error_msg = "❌ **No new images found for this tag.**" if status == "no_new_media" or status == "no_posts" else "🚨 **Server connection error.**"
         bot.edit_message_text(error_msg, message.chat.id, waiting_msg.message_id, parse_mode="Markdown")
@@ -174,10 +159,8 @@ def send_video(message):
     if media_list and status == "success":
         success = False
         
-        # Iterating to find a solid streamable link
         for item in media_list[:5]:
             try:
-                # Setting 120s timeout to fully support videos up to 200MB
                 bot.send_video(message.chat.id, item["url"], timeout=120)
                 add_to_sent_cache(item["id"])
                 success = True
@@ -201,6 +184,7 @@ def send_video(message):
 # ----------------- Keep Alive Layer -----------------
 def start_bot_polling():
     print("🚀 Bot Polling Started...")
+    bot.delete_webhook(drop_pending_updates=True)
     bot.infinity_polling()
 
 if __name__ == "__main__":
